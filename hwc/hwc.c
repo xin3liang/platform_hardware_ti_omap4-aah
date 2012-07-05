@@ -64,7 +64,6 @@
 #define NUM_NONSCALING_OVERLAYS 1
 #define HAL_PIXEL_FORMAT_BGRX_8888      0x1FF
 #define HAL_PIXEL_FORMAT_TI_NV12        0x100
-#define HAL_PIXEL_FORMAT_TI_NV12_PADDED 0x101
 #define MAX_TILER_SLOT (32 << 20)
 
 struct ext_transform_t {
@@ -400,7 +399,6 @@ static int omap4_hwc_is_valid_format(int format)
     case HAL_PIXEL_FORMAT_BGRA_8888:
     case HAL_PIXEL_FORMAT_BGRX_8888:
     case HAL_PIXEL_FORMAT_TI_NV12:
-    case HAL_PIXEL_FORMAT_TI_NV12_PADDED:
         return 1;
 
     default:
@@ -474,7 +472,6 @@ static int is_NV12(IMG_native_handle_t *handle)
     switch(handle->iFormat)
     {
     case HAL_PIXEL_FORMAT_TI_NV12:
-    case HAL_PIXEL_FORMAT_TI_NV12_PADDED:
         return 1;
     default:
         return 0;
@@ -578,7 +575,6 @@ omap4_hwc_setup_layer_base(struct dss2_ovl_cfg *oc, int index, int format, int b
         break;
 
     case HAL_PIXEL_FORMAT_TI_NV12:
-    case HAL_PIXEL_FORMAT_TI_NV12_PADDED:
         oc->color_mode = OMAP_DSS_COLOR_NV12;
         bits_per_pixel = 8;
         oc->cconv = ctbl_bt601_5;

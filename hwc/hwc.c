@@ -1671,7 +1671,7 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
     int big_layers = 0;
 
     int blit_all = 0;
-    blit_reset(hwc_dev, list->flags);
+    blit_reset(hwc_dev, list ? list->flags : 0);
 
     /* If the SGX is used or we are going to blit something we need a framebuffer
      * and a DSS pipe

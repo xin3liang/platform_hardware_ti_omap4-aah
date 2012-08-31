@@ -1724,7 +1724,7 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
              is_protected(layer) ||
              is_upscaled_NV12(hwc_dev, layer) ||
              (hwc_dev->ext.current.docking && hwc_dev->ext.current.enabled && dockable(layer))) &&
-            mem_used + mem1d(handle) < limits.tiler1d_slot_size &&
+            mem_used + mem1d(handle) <= limits.tiler1d_slot_size &&
             /* can't have a transparent overlay in the middle of the framebuffer stack */
             !(is_BLENDED(layer) && fb_z >= 0) &&
             /* current hardware is unable to keep up with more than 1 'large' RGB32 layer */

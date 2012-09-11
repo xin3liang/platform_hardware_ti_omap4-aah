@@ -1667,10 +1667,6 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
 
     decide_supported_cloning(hwc_dev, &num);
 
-    /* Disable the forced SGX rendering if there is only one layer */
-    if (hwc_dev->force_sgx && num.composited_layers <= 1)
-        hwc_dev->force_sgx = 0;
-
     /* phase 3 logic */
     if (can_dss_render_all(hwc_dev, &num)) {
         /* All layers can be handled by the DSS -- don't use SGX for composition */
@@ -2553,7 +2549,7 @@ static void *omap4_hwc_hdmi_thread(void *data)
             if (hwc_dev->idle && (now >= idle_wakeup)) {
                 if (hwc_dev->procs) {
                     pthread_mutex_lock(&hwc_dev->lock);
-                    invalidate = !hwc_dev->force_sgx;
+                    invalidate = hwc_dev->last_int_ovls > 1 && !hwc_dev->force_sgx;
                     if (invalidate) {
                         hwc_dev->force_sgx = 2;
                     }

@@ -1816,7 +1816,7 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
          * This is needed because if we blit all we would lose the handle of
          * the first layer
          */
-        if (hwc_dev->blit_num == 0) {
+        if (hwc_dev->use_sgx) {
             hwc_dev->buffers[0] = NULL;
         }
         omap4_hwc_setup_layer_base(&dsscomp->ovls[0].cfg, fb_z,

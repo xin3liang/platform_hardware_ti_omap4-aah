@@ -1,4 +1,5 @@
 ifeq ($(TARGET_BOARD_PLATFORM),omap4)
+ifeq ($(TARGET_BOARD_PLATFORM_VARIANT),aah)
 
 LOCAL_PATH:= $(call my-dir)
 HARDWARE_TI_OMAP4_BASE:= $(LOCAL_PATH)
@@ -31,4 +32,5 @@ BUILD_HEAPTRACKED_EXECUTABLE:= $(BUILD_EXECUTABLE)
 endif
 
 include $(call first-makefiles-under,$(LOCAL_PATH))
+endif
 endif

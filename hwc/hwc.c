@@ -947,6 +947,7 @@ static int omap4_hwc_set_best_hdmi_mode(omap4_hwc_device_t *hwc_dev, __u32 xres,
                                         float xpy)
 {
     int dis_ix = hwc_dev->on_tv ? 0 : 1;
+    int forced_preferred_mode = 0;
 
     struct _qdis {
         struct dsscomp_display_info dis;
@@ -980,14 +981,24 @@ static int omap4_hwc_set_best_hdmi_mode(omap4_hwc_device_t *hwc_dev, __u32 xres,
      */
     __u32 preferred_mode_xres = 0;
     __u32 preferred_mode_yres = 0;
-    for (i = 0; i < d.dis.modedb_len; i++) {
-        if (d.modedb[i].flag & FB_FLAG_PREFERRED) {
-            preferred_mode_xres = d.modedb[i].xres;
-            preferred_mode_yres = d.modedb[i].yres;
-            ALOGD("preferred mode %d: xres %u yres %u\n",
-		  i, d.modedb[i].xres, d.modedb[i].yres);
-            break;
+
+    char value[PROPERTY_VALUE_MAX];
+    if (property_get("persist.hwc.preferred_mode", value, "") <= 0 ||
+        sscanf(value, "%dx%d", &preferred_mode_xres,
+               &preferred_mode_yres) != 2) {
+        for (i = 0; i < d.dis.modedb_len; i++) {
+            if (d.modedb[i].flag & FB_FLAG_PREFERRED) {
+                preferred_mode_xres = d.modedb[i].xres;
+                preferred_mode_yres = d.modedb[i].yres;
+                ALOGD("preferred mode %d: xres %u yres %u\n",
+                    i, d.modedb[i].xres, d.modedb[i].yres);
+                break;
+            }
         }
+    } else {
+        ALOGD("forced preferred mode xres %u yres %u\n",
+             preferred_mode_xres, preferred_mode_yres);
+        forced_preferred_mode = 1;
     }
 
     __u32 ext_fb_xres, ext_fb_yres;
@@ -1031,21 +1042,26 @@ static int omap4_hwc_set_best_hdmi_mode(omap4_hwc_device_t *hwc_dev, __u32 xres,
         /* prefer modes that match the preferred mode's resolution */
         if (d.modedb[i].xres == preferred_mode_xres &&
             d.modedb[i].yres == preferred_mode_yres) {
-            score += 1;
+            if (forced_preferred_mode)
+                score += 10;
+            else
+                score += 1;
         }
 
         /* prefer modes the kernel has hinted is the correct mode */
-        if (d.modedb[i].flag & FB_FLAG_PREFERRED)
+        if (!forced_preferred_mode && (d.modedb[i].flag & FB_FLAG_PREFERRED))
             score += 1;
 
         /* prefer the same mode as we use for mirroring to avoid mode change */
-       score = (score << 1) | (i == ~ext->mirror_mode && ext->avoid_mode_change);
+        score = (score << 1) | (i == ~ext->mirror_mode && ext->avoid_mode_change);
 
         score = add_scaling_score(score, xres, yres, 60, ext_fb_xres, ext_fb_yres,
                                   mode_xres, mode_yres, d.modedb[i].refresh ? : 1);
 
-        ALOGD("#%d: %dx%d %dHz flag 0x%x vmode 0x%x", i, mode_xres, mode_yres,
-            d.modedb[i].refresh, d.modedb[i].flag, d.modedb[i].vmode);
+        ALOGD("#%d: %dx%d %dHz flag 0x%x vmode 0x%x score 0x%x",
+            i, mode_xres, mode_yres,
+            d.modedb[i].refresh, d.modedb[i].flag, d.modedb[i].vmode,
+            score);
         if (debug)
             ALOGD("  score=0x%x adj.res=%dx%d", score, ext_fb_xres, ext_fb_yres);
         if (best_score < score) {

@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <fcntl.h>
 #include <poll.h>
+#include <sys/eventfd.h>
 #include <sys/ioctl.h>
 #include <linux/fb.h>
 #include <linux/omapfb.h>
@@ -131,7 +132,7 @@ struct omap4_hwc_device {
     int fb_fd;                  /* file descriptor for /dev/fb0 */
     int dsscomp_fd;             /* file descriptor for /dev/dsscomp */
     int hdmi_fb_fd;             /* file descriptor for /dev/fb1 */
-    int pipe_fds[2];            /* pipe to event thread */
+    int wakeup_evt;             /* eventfd used to wakeup event thread */
 
     int img_mem_size;           /* size of fb for hdmi */
     void *img_mem_ptr;          /* start of fb for hdmi */
@@ -161,6 +162,13 @@ struct omap4_hwc_device {
     int last_ext_ovls;          /* # of overlays on external/internal display for last composition */
     int last_int_ovls;
     int lcd_transform;
+
+    /* fake vsync event state */
+    pthread_mutex_t vsync_lock;
+    int vsync_enabled;
+    uint64_t last_vsync_time;
+    int last_vsync_time_valid;
+    uint64_t fake_vsync_period;
 };
 typedef struct omap4_hwc_device omap4_hwc_device_t;
 
@@ -396,6 +404,37 @@ static int dockable(hwc_layer_1_t *layer)
     IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
 
     return (handle->usage & GRALLOC_USAGE_EXTERNAL_DISP);
+}
+
+static uint64_t vsync_clock_now()
+{
+    uint64_t now = 0;
+    struct timespec ts;
+
+    if (!clock_gettime(CLOCK_MONOTONIC, &ts))
+        now = ((uint64_t)ts.tv_sec) * 1000000000ull + ts.tv_nsec;
+
+    return now;
+}
+
+static void wakeup_hdmi_thread(omap4_hwc_device_t *hwc_dev)
+{
+    uint64_t tmp = 1;
+    write(hwc_dev->wakeup_evt, &tmp, sizeof(tmp));
+}
+
+static void fire_vsync_event(omap4_hwc_device_t *hwc_dev, uint64_t timestamp)
+{
+    pthread_mutex_lock(&hwc_dev->vsync_lock);
+
+    hwc_dev->last_vsync_time_valid = 1;
+    hwc_dev->last_vsync_time = timestamp;
+
+    pthread_mutex_unlock(&hwc_dev->vsync_lock);
+
+    if (hwc_dev->procs && hwc_dev->procs->vsync) {
+        hwc_dev->procs->vsync(hwc_dev->procs, 0, timestamp);
+    }
 }
 
 static unsigned int mem1d(IMG_native_handle_t *handle)
@@ -1666,7 +1705,7 @@ static int omap4_hwc_set(struct hwc_composer_device_1 *dev,
         //dump_dsscomp(dsscomp);
 
         // signal the event thread that a post has happened
-        write(hwc_dev->pipe_fds[1], "s", 1);
+        wakeup_hdmi_thread(hwc_dev);
         if (hwc_dev->force_sgx > 0)
             hwc_dev->force_sgx--;
 
@@ -1850,6 +1889,7 @@ static int omap4_hwc_device_close(hw_device_t* device)
             close(hwc_dev->fb_fd);
         /* pthread will get killed when parent process exits */
         pthread_mutex_destroy(&hwc_dev->lock);
+        pthread_mutex_destroy(&hwc_dev->vsync_lock);
         free(hwc_dev);
     }
 
@@ -1924,6 +1964,7 @@ static void set_lcd_transform_matrix(omap4_hwc_device_t *hwc_dev)
     return;
 
 }
+
 static void handle_hotplug(omap4_hwc_device_t *hwc_dev)
 {
     omap4_hwc_ext_t *ext = &hwc_dev->ext;
@@ -2050,13 +2091,31 @@ static void handle_uevents(omap4_hwc_device_t *hwc_dev, const char *buff, int le
     }
 
     if (vsync) {
-        if (hwc_dev->procs)
-            hwc_dev->procs->vsync(hwc_dev->procs, 0, timestamp);
+        fire_vsync_event(hwc_dev, timestamp);
     } else {
-        if (dock)
+        if (dock) {
             hwc_dev->ext.force_dock = state == 1;
-        else
-            hwc_dev->ext.hdmi_state = state == 1;
+        } else {
+            /* If the primary display is HDMI, VSYNC is enabled, and HDMI's plug
+             * state has just gone from 1->0, then we need to be sure to start
+             * faking the VSYNC events.
+             */
+            if (hwc_dev->on_tv) {
+                int new_state, state_change;
+
+                pthread_mutex_lock(&hwc_dev->vsync_lock);
+
+                new_state = state == 1;
+                state_change = (new_state != hwc_dev->ext.hdmi_state);
+                hwc_dev->ext.hdmi_state = new_state;
+                if (state_change && !new_state)
+                    wakeup_hdmi_thread(hwc_dev);
+
+                pthread_mutex_unlock(&hwc_dev->vsync_lock);
+            } else {
+                hwc_dev->ext.hdmi_state = state == 1;
+            }
+        }
         handle_hotplug(hwc_dev);
     }
 }
@@ -2076,7 +2135,7 @@ static void *omap4_hwc_hdmi_thread(void *data)
 
     fds[0].fd = uevent_get_fd();
     fds[0].events = POLLIN;
-    fds[1].fd = hwc_dev->pipe_fds[0];
+    fds[1].fd = hwc_dev->wakeup_evt;
     fds[1].events = POLLIN;
 
     timeout = hwc_dev->idle ? hwc_dev->idle : -1;
@@ -2084,10 +2143,58 @@ static void *omap4_hwc_hdmi_thread(void *data)
     memset(uevent_desc, 0, sizeof(uevent_desc));
 
     do {
-        err = poll(fds, hwc_dev->idle ? 2 : 1, timeout);
+        uint64_t idle_wakeup  = (uint64_t)(-1);
+        uint64_t vsync_wakeup = (uint64_t)(-1);
+        uint64_t now = vsync_clock_now();
+        uint64_t effective_wakeup;
+        int effective_timeout;
+
+        if (timeout >= 0)
+            idle_wakeup = now + (((uint64_t)timeout) * 1000000);
+
+        if (hwc_dev->on_tv) {
+            pthread_mutex_lock(&hwc_dev->vsync_lock);
+
+            if (!hwc_dev->ext.hdmi_state && hwc_dev->vsync_enabled) {
+                vsync_wakeup = hwc_dev->last_vsync_time_valid
+                             ? hwc_dev->last_vsync_time
+                             : now;
+
+                vsync_wakeup += hwc_dev->fake_vsync_period;
+
+                if (vsync_wakeup < now)
+                    vsync_wakeup = now;
+            }
+
+            pthread_mutex_unlock(&hwc_dev->vsync_lock);
+        }
+
+        effective_wakeup = idle_wakeup < vsync_wakeup
+                         ? idle_wakeup
+                         : vsync_wakeup;
+        if (effective_wakeup == (uint64_t)(-1))
+            effective_timeout = -1;
+        else if (effective_wakeup <= now)
+            effective_timeout = 0;
+        else
+            effective_timeout = (int)((effective_wakeup - now + 999999) / 1000000);
+
+        if (effective_timeout)
+            err = poll(fds, 2, effective_timeout);
+        else
+            err = 0;
+
+        now = vsync_clock_now();
 
         if (err == 0) {
-            if (hwc_dev->idle) {
+            int fired = 0;
+
+            if (now >= vsync_wakeup) {
+                fire_vsync_event(hwc_dev, vsync_wakeup);
+                fired = 1;
+            }
+
+            if (hwc_dev->idle && (now >= idle_wakeup)) {
                 if (hwc_dev->procs) {
                     pthread_mutex_lock(&hwc_dev->lock);
                     invalidate = !hwc_dev->force_sgx && hwc_dev->ovls_blending;
@@ -2102,8 +2209,11 @@ static void *omap4_hwc_hdmi_thread(void *data)
                     }
                 }
 
-                continue;
+                fired = 1;
             }
+
+            if (fired)
+                continue;
         }
 
         if (err == -1) {
@@ -2112,9 +2222,11 @@ static void *omap4_hwc_hdmi_thread(void *data)
             continue;
         }
 
-        if (hwc_dev->idle && fds[1].revents & POLLIN) {
-            char c;
-            read(hwc_dev->pipe_fds[0], &c, 1);
+        if (fds[1].revents & POLLIN) {
+            uint64_t tmp;
+
+            read(hwc_dev->wakeup_evt, &tmp, sizeof(tmp));
+
             if (!hwc_dev->force_sgx)
                 timeout = hwc_dev->idle ? hwc_dev->idle : -1;
         }
@@ -2169,7 +2281,31 @@ static int omap4_hwc_event_control(struct hwc_composer_device_1* dev,
         int val = !!enabled;
         int err;
 
-        err = ioctl(hwc_dev->fb_fd, OMAPFB_ENABLEVSYNC, &val);
+        /* If the primary display is HDMI, then we need to be sure to fake a
+         * stream vsync events if vsync is enabled, but HDMI happens to be
+         * disconnected.
+         */
+        if (hwc_dev->on_tv) {
+            pthread_mutex_lock(&hwc_dev->vsync_lock);
+
+            if (!val)
+                hwc_dev->last_vsync_time_valid = 0;
+
+            /* If VSYNC is enabled, but HDMI is not actually plugged in, we need
+             * to fake it.  Poke the work thread to make sure it is taking care
+             * of things.
+             */
+            if (!hwc_dev->ext.hdmi_state && !hwc_dev->vsync_enabled && val)
+                wakeup_hdmi_thread(hwc_dev);
+
+            hwc_dev->vsync_enabled = val;
+
+            err = ioctl(hwc_dev->fb_fd, OMAPFB_ENABLEVSYNC, &val);
+            pthread_mutex_unlock(&hwc_dev->vsync_lock);
+        } else {
+            err = ioctl(hwc_dev->fb_fd, OMAPFB_ENABLEVSYNC, &val);
+        }
+
         if (err < 0)
             return -errno;
 
@@ -2228,7 +2364,12 @@ static int omap4_hwc_device_open(const hw_module_t* module, const char* name,
     hwc_dev->base.registerProcs = omap4_hwc_registerProcs;
     hwc_dev->base.dump = omap4_hwc_dump;
     hwc_dev->fb_dev = hwc_mod->fb_dev;
+    hwc_dev->wakeup_evt = -1;
     *device = &hwc_dev->base.common;
+
+    hwc_dev->vsync_enabled = 0;
+    hwc_dev->last_vsync_time_valid = 0;
+    hwc_dev->fake_vsync_period = 1000000000ull/60;
 
     hwc_dev->dsscomp_fd = open("/dev/dsscomp", O_RDWR);
     if (hwc_dev->dsscomp_fd < 0) {
@@ -2288,8 +2429,8 @@ static int omap4_hwc_device_open(const hw_module_t* module, const char* name,
     }
     set_lcd_transform_matrix( hwc_dev );
 
-    if (pipe(hwc_dev->pipe_fds) == -1) {
-            ALOGE("failed to event pipe (%d): %m", errno);
+    if ((hwc_dev->wakeup_evt = eventfd(0, EFD_NONBLOCK)) < 0) {
+            ALOGE("failed to eventfd (%d): %m", errno);
             err = -errno;
             goto done;
     }
@@ -2299,6 +2440,13 @@ static int omap4_hwc_device_open(const hw_module_t* module, const char* name,
         err = -errno;
         goto done;
     }
+
+    if (pthread_mutex_init(&hwc_dev->vsync_lock, NULL)) {
+        ALOGE("failed to create vsync mutex (%d): %m", errno);
+        err = -errno;
+        goto done;
+    }
+
     if (pthread_create(&hwc_dev->hdmi_thread, NULL, omap4_hwc_hdmi_thread, hwc_dev)) {
         ALOGE("failed to create HDMI listening thread (%d): %m", errno);
         err = -errno;
@@ -2359,7 +2507,10 @@ done:
             close(hwc_dev->hdmi_fb_fd);
         if (hwc_dev->fb_fd >= 0)
             close(hwc_dev->fb_fd);
+        if (hwc_dev->wakeup_evt >= 0)
+            close(hwc_dev->wakeup_evt);
         pthread_mutex_destroy(&hwc_dev->lock);
+        pthread_mutex_destroy(&hwc_dev->vsync_lock);
         free(hwc_dev->buffers);
         free(hwc_dev);
     }

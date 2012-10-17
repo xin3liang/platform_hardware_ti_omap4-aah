@@ -34,7 +34,6 @@ PRODUCT_PACKAGES := \
 	hwcomposer.omap4 \
 	smc_pa_ctrl \
 	tf_daemon \
-	libtf_crypto_sst \
-	libdrmdecrypt
+	libtf_crypto_sst
 
 PRODUCT_VENDOR_KERNEL_HEADERS := hardware/ti/omap4xxx/kernel-headers

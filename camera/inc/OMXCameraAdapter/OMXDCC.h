@@ -14,50 +14,31 @@
  * limitations under the License.
  */
 
-
-
-#include <utils/Errors.h>
-#include <semaphore.h>
-#include <stdio.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-
-#include "Status.h"
+#ifndef OMX_DCC_H
+#define OMX_DCC_H
 
 namespace Ti {
-namespace Utils {
+namespace Camera {
 
-class Semaphore
+class DCCHandler
 {
 public:
 
-    Semaphore();
-    ~Semaphore();
-
-    //Release semaphore
-    status_t Release();
-
-    ///Create the semaphore with initial count value
-    status_t Create(int count=0);
-
-    ///Wait operation
-    status_t Wait();
-
-    ///Signal operation
-    status_t Signal();
-
-    ///Current semaphore count
-    int Count();
-
-    ///Wait operation with a timeout
-    status_t WaitTimeout(int timeoutMicroSecs);
+    status_t loadDCC(OMX_HANDLETYPE hComponent);
 
 private:
-    sem_t *mSemaphore;
 
+    OMX_ERRORTYPE initDCC(OMX_HANDLETYPE hComponent);
+    OMX_ERRORTYPE sendDCCBufPtr(OMX_HANDLETYPE hComponent, CameraBuffer *dccBuffer);
+    size_t readDCCdir(OMX_PTR buffer, const android::Vector<android::String8 *> &dirPaths);
+
+private:
+
+    static android::String8 DCCPath;
+    static bool mDCCLoaded;
 };
 
-} // namespace Utils
+} // namespace Camera
 } // namespace Ti
+
+#endif // OMX_DCC_H

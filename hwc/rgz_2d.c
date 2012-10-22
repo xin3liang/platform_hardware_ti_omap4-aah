@@ -100,16 +100,16 @@ static void rgz_blts_init(struct rgz_blts *blts);
 static void rgz_blts_free(struct rgz_blts *blts);
 static struct rgz_blt_entry* rgz_blts_get(struct rgz_blts *blts, rgz_out_params_t *params);
 static int rgz_blts_bvdirect(rgz_t* rgz, struct rgz_blts *blts, rgz_out_params_t *params);
-static void rgz_get_src_rect(hwc_layer_t* layer, blit_rect_t *subregion_rect, blit_rect_t *res_rect);
+static void rgz_get_src_rect(hwc_layer_1_t* layer, blit_rect_t *subregion_rect, blit_rect_t *res_rect);
 static int hal_to_ocd(int color);
 static int rgz_get_orientation(unsigned int transform);
 static int rgz_get_flip_flags(unsigned int transform, int use_src2_flags);
-static int rgz_hwc_scaled(hwc_layer_t *layer);
+static int rgz_hwc_scaled(hwc_layer_1_t *layer);
 
 int debug = 0;
 struct rgz_blts blts;
 /* Represents a screen sized background layer */
-static hwc_layer_t bg_layer;
+static hwc_layer_1_t bg_layer;
 
 static void svgout_header(int htmlw, int htmlh, int coordw, int coordh)
 {
@@ -169,7 +169,7 @@ static int get_layer_ops(blit_hregion_t *hregion, int subregion, int *bottom)
         if (!empty_rect(&hregion->blitrects[l][subregion])) {
             ops++;
             *bottom = l;
-            hwc_layer_t *layer = hregion->rgz_layers[l]->hwc_layer;
+            hwc_layer_1_t *layer = hregion->rgz_layers[l]->hwc_layer;
             IMG_native_handle_t *h = (IMG_native_handle_t *)layer->handle;
             if ((layer->blending != HWC_BLENDING_PREMULT) || is_OPAQUE(h->iFormat))
                 break;
@@ -228,7 +228,7 @@ static void rgz_out_svg(rgz_t *rgz, rgz_out_params_t *params)
 }
 
 /* XXX duplicate of hwc.c version */
-static void dump_layer(hwc_layer_t const* l, int iserr)
+static void dump_layer(hwc_layer_1_t const* l, int iserr)
 {
 #define FMT(f) ((f) == HAL_PIXEL_FORMAT_TI_NV12 ? "NV12" : \
                 (f) == HAL_PIXEL_FORMAT_BGRX_8888 ? "xRGB32" : \
@@ -261,7 +261,7 @@ static void dump_all(rgz_layer_t *rgz_layers, unsigned int layerno, unsigned int
 {
     unsigned int i;
     for (i = 0; i < layerno; i++) {
-        hwc_layer_t *l = rgz_layers[i].hwc_layer;
+        hwc_layer_1_t *l = rgz_layers[i].hwc_layer;
         OUTE("Layer %d", i);
         dump_layer(l, errlayer == i);
     }
@@ -305,7 +305,7 @@ static int rgz_is_blending_disabled(rgz_out_params_t *params)
     return params->data.bvc.noblend;
 }
 
-static void rgz_get_displayframe_rect(hwc_layer_t *layer, blit_rect_t *res_rect)
+static void rgz_get_displayframe_rect(hwc_layer_1_t *layer, blit_rect_t *res_rect)
 {
     res_rect->left = layer->displayFrame.left;
     res_rect->top = layer->displayFrame.top;
@@ -336,7 +336,7 @@ static void rgz_set_dst_data(rgz_out_params_t *params, blit_rect_t *subregion_re
 static void rgz_set_src_data(rgz_out_params_t *params, rgz_layer_t *rgz_layer,
     blit_rect_t *subregion_rect, struct rgz_blt_entry* e, int is_src2)
 {
-    hwc_layer_t *hwc_layer = rgz_layer->hwc_layer;
+    hwc_layer_1_t *hwc_layer = rgz_layer->hwc_layer;
     struct bvbuffdesc *srcdesc = is_src2 ? &e->src2desc : &e->src1desc;
     struct bvsurfgeom *srcgeom = is_src2 ? &e->src2geom : &e->src1geom;
     struct bvrect *srcrect = is_src2 ? &e->bp.src2rect : &e->bp.src1rect;
@@ -400,7 +400,7 @@ static void rgz_set_src2_is_dst(rgz_out_params_t *params, struct rgz_blt_entry* 
 /*
  * Configure the scaling mode according to the layer format
  */
-static void rgz_cfg_scale_mode(struct rgz_blt_entry* e, hwc_layer_t *layer)
+static void rgz_cfg_scale_mode(struct rgz_blt_entry* e, hwc_layer_1_t *layer)
 {
     /*
      * TODO: Revisit scaling mode assignment later, output between GPU and GC320
@@ -417,7 +417,7 @@ static struct rgz_blt_entry* rgz_hwc_subregion_copy(rgz_out_params_t *params,
     blit_rect_t *subregion_rect, rgz_layer_t *rgz_src1)
 {
     struct rgz_blt_entry* e = rgz_blts_get(&blts, params);
-    hwc_layer_t *hwc_src1 = rgz_src1->hwc_layer;
+    hwc_layer_1_t *hwc_src1 = rgz_src1->hwc_layer;
     e->bp.structsize = sizeof(struct bvbltparams);
     e->bp.op.rop = 0xCCCC; /* SRCCOPY */
     e->bp.flags = BVFLAG_CLIP | BVFLAG_ROP;
@@ -452,7 +452,7 @@ static struct rgz_blt_entry* rgz_hwc_subregion_blend(rgz_out_params_t *params,
     blit_rect_t *subregion_rect, rgz_layer_t *rgz_src1, rgz_layer_t *rgz_src2)
 {
     struct rgz_blt_entry* e = rgz_blts_get(&blts, params);
-    hwc_layer_t *hwc_src1 = rgz_src1->hwc_layer;
+    hwc_layer_1_t *hwc_src1 = rgz_src1->hwc_layer;
     e->bp.structsize = sizeof(struct bvbltparams);
     e->bp.op.blend = BVBLEND_SRC1OVER;
     e->bp.flags = BVFLAG_CLIP | BVFLAG_BLEND;
@@ -475,7 +475,7 @@ static struct rgz_blt_entry* rgz_hwc_subregion_blend(rgz_out_params_t *params,
          * NOTE: Due to an API limitation it's not possible to blend src1 and
          * src2 if both have scaling, hence only src1 is used for now
          */
-        hwc_layer_t *hwc_src2 = rgz_src2->hwc_layer;
+        hwc_layer_1_t *hwc_src2 = rgz_src2->hwc_layer;
         if (rgz_hwc_scaled(hwc_src2))
             OUTE("src2 layer %p has scaling, this is not supported", hwc_src2);
         e->bp.flags |= rgz_get_flip_flags(hwc_src2->transform, 1);
@@ -542,7 +542,7 @@ static int rgz_out_bvcmd_paint(rgz_t *rgz, rgz_out_params_t *params)
     /* Begin from index 1 to remove the background layer from the output */
     for (i = 1, j = 0; i < rgz->rgz_layerno; i++) {
         rgz_layer_t *rgz_layer = &rgz->rgz_layers[i];
-        hwc_layer_t *l = rgz_layer->hwc_layer;
+        hwc_layer_1_t *l = rgz_layer->hwc_layer;
 
         //OUTP("blitting meminfo %d", rgz->rgz_layers[i].buffidx);
 
@@ -588,7 +588,7 @@ static int rgz_out_bvcmd_paint(rgz_t *rgz, rgz_out_params_t *params)
     return rv;
 }
 
-static float getscalew(hwc_layer_t *layer)
+static float getscalew(hwc_layer_1_t *layer)
 {
     int w = WIDTH(layer->sourceCrop);
     int h = HEIGHT(layer->sourceCrop);
@@ -599,7 +599,7 @@ static float getscalew(hwc_layer_t *layer)
     return ((float)WIDTH(layer->displayFrame)) / (float)w;
 }
 
-static float getscaleh(hwc_layer_t *layer)
+static float getscaleh(hwc_layer_1_t *layer)
 {
     int w = WIDTH(layer->sourceCrop);
     int h = HEIGHT(layer->sourceCrop);
@@ -667,7 +667,7 @@ static int rgz_hwc_layer_sortbyy(rgz_layer_t *ra, int rsz, int *out, int *width,
     int i;
     *width = 0;
     for (i = 0; i < rsz; i++) {
-        hwc_layer_t *layer = ra[i].hwc_layer;
+        hwc_layer_1_t *layer = ra[i].hwc_layer;
         /* Maintain regions inside display boundaries */
         int top = layer->displayFrame.top;
         int bottom = layer->displayFrame.bottom;
@@ -700,7 +700,7 @@ static void rgz_gen_blitregions(blit_hregion_t *hregion, int screen_width)
     int noffsets=0;
     int l, r;
     for (l = 0; l < hregion->nlayers; l++) {
-        hwc_layer_t *layer = hregion->rgz_layers[l]->hwc_layer;
+        hwc_layer_1_t *layer = hregion->rgz_layers[l]->hwc_layer;
         /* Make sure the subregion is not outside the boundaries of the screen */
         int left = layer->displayFrame.left;
         int right = layer->displayFrame.right;
@@ -721,7 +721,7 @@ static void rgz_gen_blitregions(blit_hregion_t *hregion, int screen_width)
         ALOGD_IF(debug, "                sub l %d r %d",
             subregion.left, subregion.right);
         for (l = 0; l < hregion->nlayers; l++) {
-            hwc_layer_t *layer = hregion->rgz_layers[l]->hwc_layer;
+            hwc_layer_1_t *layer = hregion->rgz_layers[l]->hwc_layer;
             if (rgz_hwc_intersects(&subregion, &layer->displayFrame)) {
 
                 hregion->blitrects[l][r] = subregion;
@@ -736,7 +736,7 @@ static void rgz_gen_blitregions(blit_hregion_t *hregion, int screen_width)
     }
 }
 
-static int rgz_hwc_scaled(hwc_layer_t *layer)
+static int rgz_hwc_scaled(hwc_layer_1_t *layer)
 {
     int w = WIDTH(layer->sourceCrop);
     int h = HEIGHT(layer->sourceCrop);
@@ -747,7 +747,7 @@ static int rgz_hwc_scaled(hwc_layer_t *layer)
     return WIDTH(layer->displayFrame) != w || HEIGHT(layer->displayFrame) != h;
 }
 
-static int rgz_in_valid_hwc_layer(hwc_layer_t *layer)
+static int rgz_in_valid_hwc_layer(hwc_layer_1_t *layer)
 {
     IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
     if ((layer->flags & HWC_SKIP_LAYER) || !handle)
@@ -820,7 +820,7 @@ static void rgz_handle_dirty_region(rgz_t *rgz, int reset_counters)
 
 static int rgz_in_hwccheck(rgz_in_params_t *p, rgz_t *rgz)
 {
-    hwc_layer_t *layers = p->data.hwc.layers;
+    hwc_layer_1_t *layers = p->data.hwc.layers;
     int layerno = p->data.hwc.layerno;
 
     rgz->state &= ~RGZ_STATE_INIT;
@@ -953,7 +953,7 @@ static int rgz_in_hwc(rgz_in_params_t *p, rgz_t *rgz)
         hregions[i].rect.right = dispw > screen_width ? screen_width : dispw;
         hregions[i].nlayers = 0;
         for (j = 0; j < layerno; j++) {
-            hwc_layer_t *layer = rgz_layers[j].hwc_layer;
+            hwc_layer_1_t *layer = rgz_layers[j].hwc_layer;
             if (rgz_hwc_intersects(&hregions[i].rect, &layer->displayFrame)) {
                 int l = hregions[i].nlayers++;
                 hregions[i].rgz_layers[l] = &rgz_layers[j];
@@ -981,7 +981,7 @@ static int rgz_in_hwc(rgz_in_params_t *p, rgz_t *rgz)
  * dright, dbot, rot, flip, blending, scalew, scaleh, visrects
  *
  */
-static void rgz_print_layer(hwc_layer_t *l, int idx, int csv)
+static void rgz_print_layer(hwc_layer_1_t *l, int idx, int csv)
 {
     char big_log[1024];
     int e = sizeof(big_log);
@@ -1079,11 +1079,11 @@ static void rgz_print_layer(hwc_layer_t *l, int idx, int csv)
     }
 }
 
-static void rgz_print_layers(hwc_layer_list_t* list, int csv)
+static void rgz_print_layers(hwc_display_contents_1_t* list, int csv)
 {
     size_t i;
     for (i = 0; i < list->numHwLayers; i++) {
-        hwc_layer_t *l = &list->hwLayers[i];
+        hwc_layer_1_t *l = &list->hwLayers[i];
         rgz_print_layer(l, i, csv);
     }
 }
@@ -1199,7 +1199,7 @@ static int rgz_hwc_layer_blit(rgz_out_params_t *params, rgz_layer_t *rgz_layer)
     if (!loaded)
         loaded = loadbltsville() ? : 1; /* attempt load once */
 
-    hwc_layer_t* layer = rgz_layer->hwc_layer;
+    hwc_layer_1_t* layer = rgz_layer->hwc_layer;
     blit_rect_t srcregion;
     rgz_get_displayframe_rect(layer, &srcregion);
 
@@ -1217,7 +1217,7 @@ static int rgz_hwc_layer_blit(rgz_out_params_t *params, rgz_layer_t *rgz_layer)
  * and subregion rectangles. Additionally any rotation will be taken in
  * account. The resulting rectangle is written in res_rect.
  */
-static void rgz_get_src_rect(hwc_layer_t* layer, blit_rect_t *subregion_rect, blit_rect_t *res_rect)
+static void rgz_get_src_rect(hwc_layer_1_t* layer, blit_rect_t *subregion_rect, blit_rect_t *res_rect)
 {
     IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
     int res_left = 0;
@@ -1505,7 +1505,7 @@ static int rgz_out_region(rgz_t *rgz, rgz_out_params_t *params)
             /* We don't need the handles for layers marked as -1 */
             if (rgz_layer->buffidx == -1)
                 continue;
-            hwc_layer_t *layer = rgz_layer->hwc_layer;
+            hwc_layer_1_t *layer = rgz_layer->hwc_layer;
             params->data.bvc.out_hndls[i++] = layer->handle;
             params->data.bvc.out_nhndls++;
         }
@@ -1531,7 +1531,7 @@ static int rgz_out_region(rgz_t *rgz, rgz_out_params_t *params)
     return rv;
 }
 
-void rgz_profile_hwc(hwc_layer_list_t* list, int dispw, int disph)
+void rgz_profile_hwc(hwc_display_contents_1_t* list, int dispw, int disph)
 {
     if (!list)  /* A NULL composition list can occur */
         return;
@@ -1673,4 +1673,3 @@ int rgz_out(rgz_t *rgz, rgz_out_params_t *params)
         return -1;
     }
 }
-

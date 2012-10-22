@@ -50,7 +50,7 @@ int rgz_get_screengeometry(int fd, struct bvsurfgeom *geom, int fmt);
 struct rgz_in_hwc {
     int flags;
     int layerno;
-    hwc_layer_t *layers;
+    hwc_layer_1_t *layers;
     struct bvsurfgeom *dstgeom;
 };
 
@@ -206,7 +206,7 @@ int rgz_out(rgz_t *rgz, rgz_out_params_t* params);
 /*
  * Produce instrumented logging of layer data
  */
-void rgz_profile_hwc(hwc_layer_list_t* list, int dispw, int disph);
+void rgz_profile_hwc(hwc_display_contents_1_t* list, int dispw, int disph);
 
 /*
  * ----------------------------------
@@ -262,7 +262,7 @@ typedef struct blit_rect {
 #define RGZ_MAX_BLITS (RGZ_SUBREGIONMAX * RGZ_SUBREGIONMAX)
 
 typedef struct rgz_layer {
-    hwc_layer_t *hwc_layer;
+    hwc_layer_1_t *hwc_layer;
     int buffidx;
     int dirty_count;
     void* dirty_hndl;

@@ -499,7 +499,7 @@ static int is_NV12(IMG_native_handle_t *handle)
     }
 }
 
-static int is_upscaled_NV12(omap4_hwc_device_t *hwc_dev, hwc_layer_t *layer)
+static int is_upscaled_NV12(omap4_hwc_device_t *hwc_dev, hwc_layer_1_t *layer)
 {
     if (!layer)
         return 0;
@@ -518,7 +518,7 @@ static int is_upscaled_NV12(omap4_hwc_device_t *hwc_dev, hwc_layer_t *layer)
             HEIGHT(layer->displayFrame) >= h * hwc_dev->upscaled_nv12_limit);
 }
 
-static int dockable(hwc_layer_t *layer)
+static int dockable(hwc_layer_1_t *layer)
 {
     IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
 
@@ -1492,7 +1492,7 @@ static void blit_reset(omap4_hwc_device_t *hwc_dev, int flags)
         rgz_release(&grgz);
 }
 
-static int blit_layers(omap4_hwc_device_t *hwc_dev, hwc_layer_list_t *list, int bufoff)
+static int blit_layers(omap4_hwc_device_t *hwc_dev, hwc_display_contents_1_t *list, int bufoff)
 {
     /* Do not blit if this frame will be composed entirely by the GPU */
     if (!list || hwc_dev->force_sgx)

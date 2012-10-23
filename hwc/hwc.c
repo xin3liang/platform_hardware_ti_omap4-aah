@@ -152,6 +152,8 @@ struct counts {
     unsigned int max_scaling_overlays;
     unsigned int mem;
     unsigned int s3d;
+
+    unsigned int large_rgb32_layers;
 };
 
 struct omap4_hwc_device {
@@ -523,6 +525,16 @@ static int dockable(hwc_layer_1_t *layer)
     IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
 
     return (handle->usage & GRALLOC_USAGE_EXTERNAL_DISP);
+}
+
+/* test if layer appears to be RGB32 (4 Bpp) and > 1280x720 */
+static int is_large_rgb32_layer(const hwc_layer_1_t *layer)
+{
+    IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
+
+    return is_RGB32(handle) &&
+        (((layer->sourceCrop.right - layer->sourceCrop.left) > 1280) ||
+        ((layer->sourceCrop.bottom - layer->sourceCrop.top) > 720));
 }
 
 static uint64_t vsync_clock_now()
@@ -1229,6 +1241,9 @@ static void gather_layer_statistics(omap4_hwc_device_t *hwc_dev, struct counts *
                 num->protected++;
 
             num->mem += mem1d(handle);
+
+            if (is_large_rgb32_layer(layer))
+                num->large_rgb32_layers++;
         }
     }
     hwc_dev->stats = *num;
@@ -1315,7 +1330,9 @@ static int can_dss_render_all(omap4_hwc_device_t *hwc_dev, struct counts *num)
             (!tform || (num->NV12 == num->possible_overlay_layers) ||
             (num->NV12 && ext->current.docking)) &&
             /* HDMI cannot display BGR */
-            (num->BGR == 0 || (num->RGB == 0 && !on_tv) || !hwc_dev->flags_rgb_order);
+            (num->BGR == 0 || (num->RGB == 0 && !on_tv) || !hwc_dev->flags_rgb_order) &&
+            /* current hardware is unable to keep up with more than 1 'large' RGB32 layer */
+            num->large_rgb32_layers <= 1;
 }
 
 static inline int can_dss_render_layer(omap4_hwc_device_t *hwc_dev,
@@ -1468,16 +1485,6 @@ static void check_sync_fds(size_t numDisplays, hwc_display_contents_1_t** displa
             }
         }
     }
-}
-
-/* test if layer appears to be RGB32 (4 Bpp) and > 1280x720 */
-static int is_large_rgb32_layer(const hwc_layer_1_t *layer)
-{
-    IMG_native_handle_t *handle = (IMG_native_handle_t *)layer->handle;
-
-    return is_RGB32(handle) &&
-        (((layer->sourceCrop.right - layer->sourceCrop.left) > 1280) ||
-        ((layer->sourceCrop.bottom - layer->sourceCrop.top) > 720));
 }
 
 static void blit_reset(omap4_hwc_device_t *hwc_dev, int flags)

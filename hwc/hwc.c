@@ -1311,6 +1311,9 @@ static void decide_supported_cloning(omap4_hwc_device_t *hwc_dev, struct counts 
         num->max_scaling_overlays = num->max_hw_overlays - nonscaling_ovls;
 }
 
+/* how many large layers can be composited by the DSS */
+static const unsigned int MAX_DSS_LARGE_LAYERS = 2;
+
 static int can_dss_render_all(omap4_hwc_device_t *hwc_dev, struct counts *num)
 {
     omap4_hwc_ext_t *ext = &hwc_dev->ext;
@@ -1331,8 +1334,8 @@ static int can_dss_render_all(omap4_hwc_device_t *hwc_dev, struct counts *num)
             (num->NV12 && ext->current.docking)) &&
             /* HDMI cannot display BGR */
             (num->BGR == 0 || (num->RGB == 0 && !on_tv) || !hwc_dev->flags_rgb_order) &&
-            /* current hardware is unable to keep up with more than 1 'large' RGB32 layer */
-            num->large_rgb32_layers <= 1;
+            /* current hardware can only handle a limited number of 'large' RGB32 layers */
+            num->large_rgb32_layers <= MAX_DSS_LARGE_LAYERS;
 }
 
 static inline int can_dss_render_layer(omap4_hwc_device_t *hwc_dev,
@@ -1690,7 +1693,7 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
     int fb_z = -1;
     int scaled_gfx = 0;
     int ix_docking = -1;
-    int big_layers = 0;
+    unsigned int big_layers = 0;
 
     int blit_all = 0;
     blit_reset(hwc_dev, list ? list->flags : 0);
@@ -1730,8 +1733,8 @@ static int omap4_hwc_prepare(struct hwc_composer_device_1 *dev, size_t numDispla
             mem_used + mem1d(handle) <= limits.tiler1d_slot_size &&
             /* can't have a transparent overlay in the middle of the framebuffer stack */
             !(is_BLENDED(layer) && fb_z >= 0) &&
-            /* current hardware is unable to keep up with more than 1 'large' RGB32 layer */
-            !(is_large_rgb32_layer(layer) && big_layers > 0)) {
+            /* current hardware can only handle a limited number of 'large' RGB32 layers */
+            !(is_large_rgb32_layer(layer) && big_layers >= MAX_DSS_LARGE_LAYERS)) {
 
             /* render via DSS overlay */
             mem_used += mem1d(handle);

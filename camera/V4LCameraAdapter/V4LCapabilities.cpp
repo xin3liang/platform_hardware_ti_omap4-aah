@@ -262,7 +262,7 @@ status_t V4LCameraAdapter::getCaps(const int sensorId, CameraProperties::Propert
         frmSizeEnum.index = i;
         //Check for frame sizes for default pixel format
         //TODO: Check for frame sizes for all supported pixel formats
-        frmSizeEnum.pixel_format = DEFAULT_PIXEL_FORMAT;
+        frmSizeEnum.pixel_format = V4L2_PIX_FMT_YUYV;
         status = ioctl (handle, VIDIOC_ENUM_FRAMESIZES, &frmSizeEnum);
         if (status == NO_ERROR) {
             int width;
@@ -308,7 +308,7 @@ status_t V4LCameraAdapter::getCaps(const int sensorId, CameraProperties::Propert
         for ( i = 0; status == NO_ERROR; i++) {
             frmIvalEnum.index = i;
             //Check for supported frame rates for the default pixel format.
-            frmIvalEnum.pixel_format = DEFAULT_PIXEL_FORMAT;
+            frmIvalEnum.pixel_format = V4L2_PIX_FMT_YUYV;
             frmIvalEnum.width = caps.tPreviewRes[j].width;
             frmIvalEnum.height = caps.tPreviewRes[j].height;
 

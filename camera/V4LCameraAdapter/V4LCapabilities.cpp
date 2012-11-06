@@ -264,29 +264,37 @@ status_t V4LCameraAdapter::getCaps(const int sensorId, CameraProperties::Propert
         //TODO: Check for frame sizes for all supported pixel formats
         frmSizeEnum.pixel_format = V4L2_PIX_FMT_YUYV;
         status = ioctl (handle, VIDIOC_ENUM_FRAMESIZES, &frmSizeEnum);
-        if(frmSizeEnum.type != V4L2_FRMSIZE_TYPE_DISCRETE) {
-            break;
-        }
         if (status == NO_ERROR) {
-            CAMHAL_LOGDB("frmSizeEnum.index[%d].width x height == (%d x %d)", i, frmSizeEnum.discrete.width, frmSizeEnum.discrete.height);
-            caps.tPreviewRes[i].width = frmSizeEnum.discrete.width;
-            caps.tPreviewRes[i].height = frmSizeEnum.discrete.height;
-            snprintf(caps.tPreviewRes[i].param, MAX_RES_STRING_LENGTH,"%dx%d",frmSizeEnum.discrete.width,frmSizeEnum.discrete.height);
+            int width;
+            int height;
 
-            caps.tCaptureRes[i].width = frmSizeEnum.discrete.width;
-            caps.tCaptureRes[i].height = frmSizeEnum.discrete.height;
-            snprintf(caps.tCaptureRes[i].param, MAX_RES_STRING_LENGTH,"%dx%d",frmSizeEnum.discrete.width,frmSizeEnum.discrete.height);
+            if(frmSizeEnum.type != V4L2_FRMSIZE_TYPE_DISCRETE) {
+                CAMHAL_LOGDB("\nfrmSizeEnum.type = %d", frmSizeEnum.type);
+                CAMHAL_LOGDB("\nmin_width x height = %d x %d ",frmSizeEnum.stepwise.min_width, frmSizeEnum.stepwise.min_height);
+                CAMHAL_LOGDB("\nmax_width x height = %d x %d ",frmSizeEnum.stepwise.max_width, frmSizeEnum.stepwise.max_height);
+                CAMHAL_LOGDB("\nstep width x height = %d x %d ",frmSizeEnum.stepwise.step_width,frmSizeEnum.stepwise.step_height);
+                //TODO: validate populating the sizes when type = V4L2_FRMSIZE_TYPE_STEPWISE
+                width = frmSizeEnum.stepwise.max_width;
+                height = frmSizeEnum.stepwise.max_height;
+            }
+            else {
+                CAMHAL_LOGDB("frmSizeEnum.index[%d].width x height == (%d x %d)", i, frmSizeEnum.discrete.width, frmSizeEnum.discrete.height);
+                width = frmSizeEnum.discrete.width;
+                height = frmSizeEnum.discrete.height;
+            }
+
+            caps.tCaptureRes[i].width = width;
+            caps.tCaptureRes[i].height = height;
+            caps.tPreviewRes[i].width =  width;
+            caps.tPreviewRes[i].height = height;
+
+            snprintf(caps.tPreviewRes[i].param, MAX_RES_STRING_LENGTH,"%dx%d",caps.tPreviewRes[i].width,caps.tPreviewRes[i].height);
+            snprintf(caps.tCaptureRes[i].param, MAX_RES_STRING_LENGTH,"%dx%d",caps.tCaptureRes[i].width,caps.tCaptureRes[i].height);
         }
         else {
             caps.ulCaptureResCount = i;
             caps.ulPreviewResCount = i;
         }
-    }
-    if(frmSizeEnum.type != V4L2_FRMSIZE_TYPE_DISCRETE) {
-        CAMHAL_LOGDB("\nmin_width x height = %d x %d ",frmSizeEnum.stepwise.min_width, frmSizeEnum.stepwise.min_height);
-        CAMHAL_LOGDB("\nmax_width x height = %d x %d ",frmSizeEnum.stepwise.max_width, frmSizeEnum.stepwise.max_height);
-        CAMHAL_LOGDB("\nstep width x height = %d x %d ",frmSizeEnum.stepwise.step_width,frmSizeEnum.stepwise.step_height);
-        //TODO: populate the sizes when type = V4L2_FRMSIZE_TYPE_STEPWISE
     }
 
     //sort the preview sizes in ascending order
@@ -305,17 +313,30 @@ status_t V4LCameraAdapter::getCaps(const int sensorId, CameraProperties::Propert
             frmIvalEnum.height = caps.tPreviewRes[j].height;
 
             status = ioctl (handle, VIDIOC_ENUM_FRAMEINTERVALS, &frmIvalEnum);
-            if(frmIvalEnum.type != V4L2_FRMIVAL_TYPE_DISCRETE) {
-                break;
-            }
             if (status == NO_ERROR) {
-                CAMHAL_LOGDB("frmIvalEnum[%d].frame rate= %d)",i, (frmIvalEnum.discrete.denominator/frmIvalEnum.discrete.numerator));
-                caps.ulFrameRates[i] = (frmIvalEnum.discrete.denominator/frmIvalEnum.discrete.numerator);
+                if(frmIvalEnum.type != V4L2_FRMIVAL_TYPE_DISCRETE) {
+                    CAMHAL_LOGDB("frmIvalEnum[%d].type = %d)", i, frmIvalEnum.type);
+                    CAMHAL_LOGDB("frmIvalEnum[%d].stepwise.min = %d/%d)", i, frmIvalEnum.stepwise.min.denominator, frmIvalEnum.stepwise.min.numerator);
+                    CAMHAL_LOGDB("frmIvalEnum[%d].stepwise.max = %d/%d)", i, frmIvalEnum.stepwise.max.denominator, frmIvalEnum.stepwise.max.numerator);
+                    CAMHAL_LOGDB("frmIvalEnum[%d].stepwise.step = %d/%d)", i, frmIvalEnum.stepwise.step.denominator, frmIvalEnum.stepwise.step.numerator);
+                    caps.ulFrameRates[i] = (frmIvalEnum.stepwise.max.denominator/frmIvalEnum.stepwise.max.numerator);
+                }
+                else {
+                    CAMHAL_LOGDB("frmIvalEnum[%d].frame rate= %d)",i, (frmIvalEnum.discrete.denominator/frmIvalEnum.discrete.numerator));
+                    caps.ulFrameRates[i] = (frmIvalEnum.discrete.denominator/frmIvalEnum.discrete.numerator);
+                }
+
                 if (caps.ulFrameRates[i] == 30) {
                     fps30 = true;
                 }
             }
-            else {
+            else if (i == 0) {
+                // Framerate reporting is not guaranteed in V4L2 implementation.
+                caps.ulFrameRates[i] = 30;
+                fps30 = true;
+                caps.ulFrameRateCount = 1;
+            } else {
+                CAMHAL_LOGE("caps.ulFrameRateCount = %d",i);
                 caps.ulFrameRateCount = i;
             }
         }

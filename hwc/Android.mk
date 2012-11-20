@@ -18,7 +18,9 @@ LOCAL_MODULE := hwcomposer.omap4
 LOCAL_CFLAGS := -DLOG_TAG=\"ti_hwc\"
 LOCAL_C_INCLUDES += \
 	external/libpng external/zlib \
-	$(HARDWARE_TI_OMAP4_BASE)/kernel-headers-ti
+	$(HARDWARE_TI_OMAP4_BASE)/kernel-headers-ti \
+	$(HARDWARE_TI_OMAP4_BASE)/kernel-headers
+
 
 # LOG_NDEBUG=0 means verbose logging enabled
 # LOCAL_CFLAGS += -DLOG_NDEBUG=0

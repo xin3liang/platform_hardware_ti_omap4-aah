@@ -48,8 +48,8 @@ CAMERAHAL_CFLAGS += -DENHANCED_DOMX
 CAMERAHAL_CFLAGS += -DLOG_TAG=\"CameraHal\"
 
 TI_CAMERAHAL_COMMON_INCLUDES := \
-    hardware/ti/omap4xxx/tiler \
-    hardware/ti/omap4xxx/hwc \
+    hardware/ti/omap4-aah/tiler \
+    hardware/ti/omap4-aah/hwc \
     external/jpeg \
     external/jhead \
     $(LOCAL_PATH)/../libtiutils \
